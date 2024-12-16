@@ -1,54 +1,61 @@
-# FTP Server Code
-import socket
+# Server Code (serv.py)
+from socket import *
 import os
 
-def handle_client(conn):
-    while True:
-        command = conn.recv(1024).decode()
-        if not command:
+# Server setup
+serverPort = 12000
+serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket.bind(("", serverPort))
+serverSocket.listen(1)
+print("The server is ready to receive")
+
+while True:
+    connectionSocket, addr = serverSocket.accept()
+    while True:  # Keep the connection open for multiple commands
+        command = connectionSocket.recv(1024).decode()
+
+        if not command:  # Break the loop if no command is received (client disconnected)
             break
-        print(f"Received command: {command}")
 
         if command.startswith("get"):
             filename = command.split()[1]
             if os.path.isfile(filename):
-                conn.send(f"EXISTS {os.path.getsize(filename)}".encode())
-                user_response = conn.recv(1024).decode()
+                file_size = os.path.getsize(filename)
+                connectionSocket.send(f"EXISTS {file_size}".encode())
+                user_response = connectionSocket.recv(1024).decode()
                 if user_response == "OK":
                     with open(filename, "rb") as f:
-                        conn.sendall(f.read())
+                        data = f.read(1024)
+                        while data:
+                            connectionSocket.send(data)
+                            data = f.read(1024)
+                print(f"File {filename} sent successfully.")
             else:
-                conn.send("ERROR File not found".encode())
+                connectionSocket.send("ERR".encode())
+
         elif command.startswith("put"):
             filename = command.split()[1]
-            conn.send("READY".encode())
+            file_size = int(connectionSocket.recv(1024).decode())
             with open(filename, "wb") as f:
-                data = conn.recv(1024)
-                while data:
+                received_size = 0
+                while received_size < file_size:
+                    data = connectionSocket.recv(1024)
+                    if not data:
+                        break
                     f.write(data)
-                    data = conn.recv(1024)
-            print(f"File {filename} received")
+                    received_size += len(data)
+            print(f"File {filename} received successfully.")
+
         elif command == "ls":
-            files = os.listdir('.')
-            conn.send('\n'.join(files).encode())
+            files = "\n".join(os.listdir())
+            connectionSocket.send(files.encode())
+
         elif command == "quit":
-            print("Client disconnected")
-            break
+            print("Client disconnected.")
+            connectionSocket.close()
+            break  # Close connection after quit command
+
         else:
-            conn.send("Invalid command".encode())
+            connectionSocket.send("Invalid command".encode())
 
-    conn.close()
-
-def main():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(("127.0.0.1", 2121))
-    server_socket.listen(1)
-    print("Server is ready to receive")
-
-    while True:
-        conn, addr = server_socket.accept()
-        print(f"Connection established with {addr}")
-        handle_client(conn)
-
-if __name__ == "__main__":
-    main()
+    connectionSocket.close()

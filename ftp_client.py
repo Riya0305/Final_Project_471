@@ -1,58 +1,64 @@
-import socket
+# Client Code (client.py)
+from socket import *
 import os
 
-def send_command(sock, command):
-    sock.send(command.encode())
-    response = sock.recv(1024).decode()
-    print(response)
-    return response
+serverName = "localhost"
+serverPort = 12000
+clientSocket = socket(AF_INET, SOCK_STREAM)
+clientSocket.connect((serverName, serverPort))
 
-def main():
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(("127.0.0.1", 2121))
-    print("Connected to the server")
+while True:
+    command = input("ftp> ").strip()
 
-    while True:
-        command = input("ftp> ").strip()
-        if command.startswith("get"):
-            filename = command.split()[1]
-            response = send_command(client_socket, command)
-            if response.startswith("EXISTS"):
-                filesize = int(response.split()[1])
-                proceed = input(f"File exists ({filesize} bytes). Download? (Y/N) ").strip().upper()
-                if proceed == "Y":
-                    client_socket.send("OK".encode())
-                    with open(filename, "wb") as f:
-                        data = client_socket.recv(1024)
-                        total_received = len(data)
-                        while data:
-                            f.write(data)
-                            if total_received >= filesize:
-                                break
-                            data = client_socket.recv(1024)
-                            total_received += len(data)
-                    print(f"File {filename} downloaded successfully.")
-                else:
-                    client_socket.send("CANCEL".encode())
+    if command.startswith("get"):
+        clientSocket.send(command.encode())
+        response = clientSocket.recv(1024).decode()
+        if response.startswith("EXISTS"):
+            file_size = int(response.split()[1])
+            user_response = input(f"File exists ({file_size} bytes). Download? (Y/N): ")
+            if user_response.lower() == "y":
+                clientSocket.send("OK".encode())
+                filename = command.split()[1]
+                with open(filename, "wb") as f:
+                    received_size = 0
+                    while received_size < file_size:
+                        data = clientSocket.recv(1024)
+                        if not data:
+                            break
+                        f.write(data)
+                        received_size += len(data)
+                print(f"File {filename} downloaded successfully.")
             else:
-                print("File not found on server.")
-        elif command.startswith("put"):
-            filename = command.split()[1]
-            if os.path.isfile(filename):
-                send_command(client_socket, command)
-                with open(filename, "rb") as f:
-                    client_socket.sendall(f.read())
-                print(f"File {filename} uploaded successfully.")
-            else:
-                print("File not found locally.")
-        elif command in ["ls", "quit"]:
-            send_command(client_socket, command)
-            if command == "quit":
-                break
+                print("Download canceled.")
         else:
-            print("Invalid command.")
+            print("File does not exist on server.")
 
-    client_socket.close()
+    elif command.startswith("put"):
+        filename = command.split()[1]
+        if os.path.isfile(filename):
+            clientSocket.send(command.encode())
+            file_size = os.path.getsize(filename)
+            clientSocket.send(str(file_size).encode())
+            with open(filename, "rb") as f:
+                data = f.read(1024)
+                while data:
+                    clientSocket.send(data)
+                    data = f.read(1024)
+            print(f"File {filename} uploaded successfully.")
+        else:
+            print("File not found.")
 
-if __name__ == "__main__":
-    main()
+    elif command == "ls":
+        clientSocket.send(command.encode())
+        response = clientSocket.recv(4096).decode()
+        print(response)
+
+    elif command == "quit":
+        clientSocket.send(command.encode())
+        print("Disconnected from server.")
+        break
+
+    else:
+        print("Invalid command.")
+
+clientSocket.close()
